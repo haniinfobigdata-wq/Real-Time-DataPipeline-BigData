@@ -1,24 +1,24 @@
 version: '3.9'
 
 services:
-  kafka-script:
-    build:
-      context: .   # Dockerfile actuel
-      dockerfile: Dockerfile
-    container_name: kafka-script
-    depends_on:
-      - kafka
-    networks:
-      - bigdata
 
+  # --------------------
+  # ZOOKEEPER
+  # --------------------
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: zookeeper
     ports:
       - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     networks:
       - bigdata
 
+  # --------------------
+  # KAFKA BROKER
+  # --------------------
   kafka:
     image: confluentinc/cp-server:7.4.0
     container_name: kafka
@@ -26,17 +26,58 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     networks:
       - bigdata
 
-  cassandra:
-    image: cassandra:4.1
-    container_name: cassandra
+  # --------------------
+  # SCHEMA REGISTRY
+  # --------------------
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.0
+    container_name: schema-registry
+    depends_on:
+      - kafka
     ports:
-      - "9042:9042"
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
     networks:
       - bigdata
 
+  # --------------------
+  # CONTROL CENTER
+  # --------------------
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:7.4.0
+    container_name: control-center
+    depends_on:
+      - kafka
+      - schema-registry
+    ports:
+      - "9021:9021"
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: kafka:9092
+      CONTROL_CENTER_SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_ENABLE: 'false'
+    networks:
+      - bigdata
+
+  # --------------------
+  # SPARK MASTER
+  # --------------------
   spark-master:
     image: apache/spark:3.5.0
     container_name: spark-master
@@ -48,6 +89,9 @@ services:
     networks:
       - bigdata
 
+  # --------------------
+  # SPARK WORKER
+  # --------------------
   spark-worker:
     image: apache/spark:3.5.0
     container_name: spark-worker
@@ -58,15 +102,61 @@ services:
     networks:
       - bigdata
 
+  # --------------------
+  # CASSANDRA
+  # --------------------
+  cassandra:
+    image: cassandra:4.1
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 100M
+      CASSANDRA_USERNAME: cassandra
+      CASSANDRA_PASSWORD: cassandra
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    networks:
+      - bigdata
+
+  # --------------------
+  # GRAFANA
+  # --------------------
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
+    depends_on:
+      - cassandra
     ports:
       - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/config_dashboard.json"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - bigdata
+
+  # --------------------
+  # PYTHON SCRIPT (depuis Git)
+  # --------------------
+  kafka-script:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kafka-script
+    depends_on:
+      - kafka
     networks:
       - bigdata
 
 volumes:
+  cassandra-data:
   grafana-data:
 
 networks:
