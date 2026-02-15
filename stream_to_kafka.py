@@ -59,8 +59,7 @@ def create_kafka_producer():
     """
     Creates the Kafka producer object
     """
-    return KafkaProducer(bootstrap_servers=['broker:29092'])
-
+    return KafkaProducer(bootstrap_servers=['kafka:9092'])
 
 def start_streaming():
     """
